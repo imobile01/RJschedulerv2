@@ -1,0 +1,42 @@
+RJ-Scheduler - Android project (version 2.0)
+============================================
+
+What's new in 2.0
+- Records: Names / Submit / Saved Data tabs; pay-period folders with a folder for each name
+- Automatic cut-off on the 15th and last day of the month at 11:59 PM
+- Automatic email to one or more addresses - sent by the phone even when the app is closed
+  (needs the Google "email sender link" - see RJ-Scheduler-Email-Sender.gs)
+- Download to phone -> Downloads/RJ-Scheduler
+- Companion is optional
+
+OPTION A - Build for free on GitHub (no installs)
+1. In your GitHub repository, upload ALL files in this folder (including the hidden
+   .github folder and app/rj-signing.keystore), replacing the old ones.
+2. Open the "Actions" tab - "Build RJ-Scheduler APK" runs by itself (about 5 min).
+3. Click the finished run > Artifacts > RJ-Scheduler-apk > download, unzip -> RJ-Scheduler.apk
+
+OPTION B - Build on your PC with Android Studio
+1. Android Studio > Open > choose the RJ-Scheduler folder. Wait for "Gradle sync".
+2. Menu: Build > Build App Bundle(s) / APK(s) > Build APK(s).
+3. Click "locate": app\build\outputs\apk\debug\app-debug.apk
+
+Installing on the phone
+- Copy the APK to the phone, tap it, allow "Install unknown apps".
+- Open the app, tap Allow for notifications.
+- Records > Submit > Automatic: add emails, paste the sender link + secret key,
+  tap "Send test email", then tap "Allow sending while app is closed" and choose Allow.
+
+IMPORTANT - signing key (app/rj-signing.keystore, password rjsched2026)
+- Every build is signed with this same key, so new builds install as an UPDATE and
+  keep the records on the phone. Keep this file in the repository and backed up.
+- Builds made before 2.0 were signed with a random GitHub key. The FIRST time you
+  install 2.0 over one of those, Android says "App not installed" - uninstall the old
+  app first (this erases its records, so send/download them first). After that,
+  every future build updates normally.
+
+Updating the app later
+- Replace app\src\main\assets\index.html with the new version, then build again.
+- Raise versionCode (2 -> 3 ...) in app\build.gradle so phones accept the update.
+
+Notes
+- Records, names and the PIN are saved on each phone. Uninstalling the app erases them.
