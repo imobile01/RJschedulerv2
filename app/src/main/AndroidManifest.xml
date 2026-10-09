@@ -1,16 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Automatic email at each pay-period cut-off (works with the app closed) -->
+    <!-- Automatic pay-period email -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
-    <!-- "Download to phone" on Android 9 and older -->
+    <!-- Saving Excel to Downloads on Android 9 and older -->
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
 
     <application
@@ -33,16 +32,26 @@
             </intent-filter>
         </activity>
 
-        <!-- Wakes at 11:59 PM on the 15th / last day of the month and emails the pay period -->
-        <receiver android:name=".SendReceiver" android:exported="false" />
+        <!-- Fires at the 11:59 PM cut-off and starts SendJob -->
+        <receiver
+            android:name=".SendReceiver"
+            android:exported="false" />
 
-        <!-- Sets the alarm again after the phone restarts or the app is updated -->
-        <receiver android:name=".BootReceiver" android:exported="true">
+        <!-- Puts the alarm back after a phone restart or an app update -->
+        <receiver
+            android:name=".BootReceiver"
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
+
+        <!-- Sends the email when the phone has internet, retrying if needed -->
+        <service
+            android:name=".SendJob"
+            android:exported="false"
+            android:permission="android.permission.BIND_JOB_SERVICE" />
 
         <provider
             android:name="androidx.core.content.FileProvider"

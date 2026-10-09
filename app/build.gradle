@@ -10,29 +10,13 @@ android {
         applicationId "com.rj.scheduler"
         minSdk 24
         targetSdk 35
-        versionCode 2
-        versionName "2.0"
-    }
-
-    // Fixed signing key (app/rj-signing.keystore) so every build - on GitHub or your PC -
-    // has the same signature and installs as an UPDATE, keeping records on the phone.
-    // Keep this file. If it is lost, phones must uninstall the app (erasing records) to install new builds.
-    signingConfigs {
-        rj {
-            storeFile file('rj-signing.keystore')
-            storePassword 'rjsched2026'
-            keyAlias 'rj'
-            keyPassword 'rjsched2026'
-        }
+        versionCode 3
+        versionName "2.1"
     }
 
     buildTypes {
-        debug {
-            signingConfig signingConfigs.rj
-        }
         release {
             minifyEnabled false
-            signingConfig signingConfigs.rj
         }
     }
 

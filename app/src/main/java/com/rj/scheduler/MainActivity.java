@@ -1,6 +1,5 @@
 package com.rj.scheduler;
 
-import android.Manifest;
 import android.app.Activity;
 import android.content.ActivityNotFoundException;
 import android.content.ContentValues;
@@ -12,6 +11,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.os.PowerManager;
+import android.provider.MediaStore;
 import android.provider.Settings;
 import android.util.Base64;
 import android.view.WindowInsets;
@@ -34,20 +34,15 @@ import java.io.FileOutputStream;
 import java.io.OutputStream;
 
 /**
- * RJ-Scheduler for Android: shows the app's index.html (in app/src/main/assets)
- * inside a WebView. Records, names and the PIN are kept on the phone (localStorage).
- *
- * The page talks to Android through window.RJAndroid (see Bridge below):
- *  - setPending / getSent : automatic email at each pay-period cut-off, even when the app is closed
- *  - saveFile             : "Download to phone" -> Downloads/RJ-Scheduler
- *  - shareFile            : "Submit as Excel" -> Android share menu (Gmail etc.)
- *  - batteryOk/askBattery : lets the 11:59 PM send run while the phone is asleep
+ * RJ-Scheduler for Android: shows assets/index.html in a WebView and gives the page
+ * a bridge (window.RJAndroid) for sharing, saving and automatic pay-period sending.
  */
 public class MainActivity extends Activity {
 
     private static final String APP_HOST = "appassets.androidplatform.net";
     private static final String START_URL = "https://" + APP_HOST + "/assets/index.html";
     private static final int PICK_FILE = 42;
+    private static final String XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
     private WebView web;
     private ValueCallback<Uri[]> fileCallback;
@@ -63,7 +58,6 @@ public class MainActivity extends Activity {
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         setContentView(root);
 
-        // Keep the app clear of the status bar and navigation bar (Android 15 draws edge-to-edge).
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             root.setOnApplyWindowInsetsListener((v, insets) -> {
                 android.graphics.Insets bars = insets.getInsets(
@@ -75,7 +69,7 @@ public class MainActivity extends Activity {
 
         WebSettings s = web.getSettings();
         s.setJavaScriptEnabled(true);
-        s.setDomStorageEnabled(true);          // localStorage for records, names, PIN
+        s.setDomStorageEnabled(true);
         s.setAllowFileAccess(false);
         s.setAllowContentAccess(true);
         s.setTextZoom(100);
@@ -94,13 +88,12 @@ public class MainActivity extends Activity {
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 Uri uri = request.getUrl();
                 if (APP_HOST.equals(uri.getHost())) return false;
-                openOutside(uri);                  // mailto:, Gmail and other links
+                openOutside(uri);
                 return true;
             }
         });
 
         web.setWebChromeClient(new WebChromeClient() {
-            // Lets "Choose from Photos" (wallpaper) open the phone's photo picker.
             @Override
             public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> callback,
                                              FileChooserParams params) {
@@ -122,18 +115,18 @@ public class MainActivity extends Activity {
         if (savedInstanceState != null) web.restoreState(savedInstanceState);
         else web.loadUrl(START_URL);
 
-        // Android 13+: allow the "Records emailed" notifications.
         if (Build.VERSION.SDK_INT >= 33
-                && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 7);
+                && checkSelfPermission("android.permission.POST_NOTIFICATIONS") != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"}, 7);
         }
         Sched.reschedule(this);
     }
 
     private void openOutside(Uri uri) {
         try {
-            Intent i = new Intent(Intent.ACTION_VIEW, uri);
-            if ("mailto".equals(uri.getScheme())) i = new Intent(Intent.ACTION_SENDTO, uri);
+            Intent i = "mailto".equals(uri.getScheme())
+                    ? new Intent(Intent.ACTION_SENDTO, uri)
+                    : new Intent(Intent.ACTION_VIEW, uri);
             startActivity(i);
         } catch (ActivityNotFoundException e) {
             Toast.makeText(this, "No app found to open this", Toast.LENGTH_SHORT).show();
@@ -144,10 +137,10 @@ public class MainActivity extends Activity {
         return n.replaceAll("[\\\\/:*?\"<>|]", "_");
     }
 
-    /** Called from the page as window.RJAndroid.* */
+    /** window.RJAndroid in the page. */
     private class Bridge {
 
-        /** The next pay period, already built as Excel, to email at the cut-off (empty = nothing to send). */
+        /** Hand the next pay period to Android for the 11:59 PM send ("" = nothing pending). */
         @JavascriptInterface
         public void setPending(String json, String cutoff) {
             long c = 0;
@@ -155,7 +148,7 @@ public class MainActivity extends Activity {
             Sched.setPending(getApplicationContext(), json, c);
         }
 
-        /** Pay periods the phone already emailed in the background: {"<cutoff>":{"to":..,"at":..}} */
+        /** Periods Android already emailed: {"<cutoff>":{"to":"...","at":"..."}} */
         @JavascriptInterface
         public String getSent() {
             return Sched.prefs(MainActivity.this).getString("sent", "{}");
@@ -164,7 +157,7 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public boolean batteryOk() {
             PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
-            return pm.isIgnoringBatteryOptimizations(getPackageName());
+            return pm == null || pm.isIgnoringBatteryOptimizations(getPackageName());
         }
 
         @JavascriptInterface
@@ -174,45 +167,51 @@ public class MainActivity extends Activity {
                     startActivity(new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
                             Uri.parse("package:" + getPackageName())));
                 } catch (Exception e) {
-                    try { startActivity(new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)); }
-                    catch (Exception ignored) { }
+                    try {
+                        startActivity(new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS));
+                    } catch (Exception ignored) { }
                 }
             });
         }
 
-        /** "Download to phone": saves the Excel file in Downloads/RJ-Scheduler. */
+        /** Save an Excel file to Downloads/RJ-Scheduler. */
         @JavascriptInterface
-        public boolean saveFile(String name, String base64) {
+        public boolean saveFile(String fileName, String base64) {
             try {
                 byte[] data = Base64.decode(base64, Base64.DEFAULT);
-                name = safeName(name);
+                String name = safeName(fileName);
                 if (Build.VERSION.SDK_INT >= 29) {
                     ContentValues v = new ContentValues();
-                    v.put("_display_name", name);
-                    v.put("mime_type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-                    v.put("relative_path", Environment.DIRECTORY_DOWNLOADS + "/RJ-Scheduler");
-                    Uri u = getContentResolver().insert(Uri.parse("content://media/external/downloads"), v);
-                    if (u == null) return false;
-                    try (OutputStream o = getContentResolver().openOutputStream(u)) { o.write(data); }
+                    v.put(MediaStore.MediaColumns.DISPLAY_NAME, name);
+                    v.put(MediaStore.MediaColumns.MIME_TYPE, XLSX);
+                    v.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/RJ-Scheduler");
+                    Uri uri = getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, v);
+                    if (uri == null) return false;
+                    try (OutputStream out = getContentResolver().openOutputStream(uri)) {
+                        if (out == null) return false;
+                        out.write(data);
+                    }
                     return true;
                 }
-                if (checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
-                    requestPermissions(new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE}, 8);
+                if (checkSelfPermission("android.permission.WRITE_EXTERNAL_STORAGE") != PackageManager.PERMISSION_GRANTED) {
+                    requestPermissions(new String[]{"android.permission.WRITE_EXTERNAL_STORAGE"}, 8);
                     return false;
                 }
-                File d = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "RJ-Scheduler");
-                d.mkdirs();
-                try (FileOutputStream o = new FileOutputStream(new File(d, name))) { o.write(data); }
+                File dir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "RJ-Scheduler");
+                if (!dir.exists()) dir.mkdirs();
+                try (FileOutputStream out = new FileOutputStream(new File(dir, name))) {
+                    out.write(data);
+                }
                 return true;
             } catch (Exception e) {
                 return false;
             }
         }
 
-        /** "Submit as Excel": Android share menu with the file attached and every email filled in. */
+        /** Open Android's share menu with the Excel attached (Gmail fills in the address). */
         @JavascriptInterface
         public void shareFile(final String fileName, final String base64, final String subject,
-                              final String body, final String emails) {
+                              final String body, final String email) {
             runOnUiThread(() -> {
                 try {
                     byte[] data = Base64.decode(base64, Base64.DEFAULT);
@@ -222,14 +221,12 @@ public class MainActivity extends Activity {
                     try (FileOutputStream out = new FileOutputStream(f)) {
                         out.write(data);
                     }
-                    Uri uri = FileProvider.getUriForFile(
-                            MainActivity.this, getPackageName() + ".files", f);
-
+                    Uri uri = FileProvider.getUriForFile(MainActivity.this, getPackageName() + ".files", f);
                     Intent send = new Intent(Intent.ACTION_SEND);
-                    send.setType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+                    send.setType(XLSX);
                     send.putExtra(Intent.EXTRA_STREAM, uri);
-                    if (emails != null && !emails.trim().isEmpty()) {
-                        send.putExtra(Intent.EXTRA_EMAIL, emails.trim().split("\\s*,\\s*"));
+                    if (email != null && !email.trim().isEmpty()) {
+                        send.putExtra(Intent.EXTRA_EMAIL, email.trim().split("\\s*,\\s*"));
                     }
                     send.putExtra(Intent.EXTRA_SUBJECT, subject);
                     send.putExtra(Intent.EXTRA_TEXT, body);
